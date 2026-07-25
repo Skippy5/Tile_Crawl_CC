@@ -1,0 +1,1540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Tile Crawl CC — The Ember Crown</title>
+<style>
+/* ============================================================
+   TILE CRAWL CC — a boxed board game on a table.
+   Palette (5 named colors, committed):
+     felt     #2f4a3a  — the table
+     card     #d8c69d  — printed cardboard
+     ink      #2b241c  — printed ink
+     oxblood  #93402d  — danger / accent
+     brass    #c8a24a  — treasure / highlight
+   ============================================================ */
+:root{
+  --felt:#2f4a3a; --felt-dark:#22382c;
+  --card:#d8c69d; --card-edge:#a8905e; --paper:#e9dcc2;
+  --ink:#2b241c; --ink-soft:#57493a;
+  --stone:#4b4034; --stone-lite:#6a5c4c;
+  --oxblood:#93402d; --brass:#c8a24a; --bone:#f1e8d4;
+  --display: Georgia, 'Palatino Linotype', 'Times New Roman', serif;
+  --body: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --tile: 104px;
+}
+*{ box-sizing:border-box; margin:0; padding:0; }
+[hidden]{ display:none !important; }
+html,body{ height:100%; }
+body{
+  font-family:var(--body); color:var(--ink); overflow:hidden;
+  background:
+    radial-gradient(ellipse at 50% 30%, rgba(255,255,255,.06), transparent 60%),
+    repeating-linear-gradient(74deg, rgba(0,0,0,.05) 0 2px, transparent 2px 5px),
+    linear-gradient(var(--felt), var(--felt-dark));
+}
+button{ font-family:inherit; cursor:pointer; }
+button:disabled{ cursor:not-allowed; }
+:focus-visible{ outline:3px solid var(--brass); outline-offset:2px; border-radius:4px; }
+
+#game{ height:100vh; display:flex; flex-direction:column; }
+#stage{ flex:1; display:flex; min-height:0; gap:10px; padding:10px 10px 0; }
+
+/* ---------- MAP ---------- */
+#mapWrap{
+  flex:1; position:relative; overflow:hidden; border-radius:10px;
+  background:
+    repeating-linear-gradient(31deg, rgba(255,255,255,.025) 0 3px, transparent 3px 7px),
+    radial-gradient(ellipse at center, rgba(0,0,0,.12), rgba(0,0,0,.4)),
+    var(--felt-dark);
+  box-shadow: inset 0 0 40px rgba(0,0,0,.5);
+}
+#mapTitle{
+  position:absolute; top:10px; left:14px; z-index:5; pointer-events:none;
+  font-family:var(--display); letter-spacing:.35em; font-size:13px;
+  color:var(--card); opacity:.55; text-transform:uppercase;
+}
+#mapTitle b{ color:var(--brass); }
+#deckBadge{
+  position:absolute; top:10px; right:14px; z-index:5; pointer-events:none;
+  font-family:var(--display); font-size:12px; letter-spacing:.12em;
+  color:var(--card); opacity:.65;
+}
+#pan{
+  position:absolute; left:50%; top:50%; width:0; height:0;
+  transition: transform .45s ease;
+}
+.tile{
+  position:absolute; width:var(--tile); height:var(--tile);
+  background:
+    repeating-linear-gradient(52deg, rgba(43,36,28,.06) 0 1px, transparent 1px 4px),
+    radial-gradient(ellipse at 35% 30%, rgba(255,255,255,.16), transparent 55%),
+    var(--card);
+  border:2px solid var(--card-edge);
+  border-radius:7px 5px 8px 6px;
+  box-shadow: 1px 2px 4px rgba(0,0,0,.55), inset 0 0 0 1px rgba(255,255,255,.15);
+}
+.tile.spawn{ animation: spawn .4s ease; }
+@keyframes spawn{ from{ transform:scale(.6) rotate(-8deg); opacity:0; } }
+/* dungeon interior is printed on the tile: a floor cross with arms per exit */
+.tile .art{ position:absolute; inset:0; border-radius:6px; overflow:hidden; }
+.tile .floor, .tile .arm{
+  position:absolute; background:
+    repeating-linear-gradient(0deg, rgba(0,0,0,.16) 0 1px, transparent 1px 13px),
+    repeating-linear-gradient(90deg, rgba(0,0,0,.16) 0 1px, transparent 1px 13px),
+    var(--stone);
+  box-shadow: inset 0 0 8px rgba(0,0,0,.45);
+}
+.tile .floor{ left:28%; top:28%; width:44%; height:44%; }
+.tile .arm.n{ left:28%; top:0;    width:44%; height:30%; }
+.tile .arm.s{ left:28%; bottom:0; width:44%; height:30%; }
+.tile .arm.w{ left:0;   top:28%;  width:30%; height:44%; }
+.tile .arm.e{ right:0;  top:28%;  width:30%; height:44%; }
+.tile .mark{
+  position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+  font-size:26px; z-index:2; text-shadow:0 1px 2px rgba(0,0,0,.6);
+  pointer-events:none;
+}
+.tile .mark.small{ font-size:17px; opacity:.8; }
+.tile .tname{
+  position:absolute; bottom:2px; left:0; right:0; text-align:center; z-index:2;
+  font-family:var(--display); font-size:8.5px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--card); opacity:.75; pointer-events:none;
+}
+.tile.entrance .floor{ background:
+  repeating-linear-gradient(180deg, var(--stone-lite) 0 7px, var(--stone) 7px 14px); }
+
+/* doorways layer (unrotated, drawn from computed exits) */
+.door{
+  position:absolute; z-index:6; width:30px; height:30px; border-radius:50%;
+  transform:translate(-50%,-50%); border:0; display:flex; align-items:center;
+  justify-content:center; font-size:15px; line-height:1;
+}
+.door.open{
+  background:radial-gradient(circle, var(--brass), #8a6a25);
+  color:var(--ink); box-shadow:0 0 12px 3px rgba(200,162,74,.55);
+  animation:doorGlow 1.6s ease-in-out infinite;
+}
+.door.open:hover{ transform:translate(-50%,-50%) scale(1.18); }
+@keyframes doorGlow{ 50%{ box-shadow:0 0 18px 6px rgba(200,162,74,.8); } }
+.door.walk{
+  background:var(--paper); color:var(--ink); font-weight:700;
+  box-shadow:0 1px 4px rgba(0,0,0,.5); opacity:.9;
+}
+.door.walk:hover{ transform:translate(-50%,-50%) scale(1.15); background:var(--bone); }
+.door.faint{ background:rgba(200,162,74,.25); box-shadow:none; pointer-events:none; width:14px; height:14px; }
+.door.sealed{ background:#3a3a3a; opacity:.5; pointer-events:none; width:16px; height:16px; }
+
+#heroTok{
+  position:absolute; z-index:8; width:38px; height:38px; border-radius:50%;
+  transform:translate(-50%,-50%); pointer-events:none;
+  background:radial-gradient(circle at 35% 30%, var(--bone), #cbb98f);
+  border:3px solid var(--oxblood); box-shadow:0 3px 6px rgba(0,0,0,.6);
+  display:flex; align-items:center; justify-content:center; font-size:19px;
+  transition:left .4s ease, top .4s ease;
+}
+#heroTok .crown{ position:absolute; top:-14px; font-size:14px; filter:drop-shadow(0 0 4px var(--brass)); }
+
+/* ---------- COMBAT PANEL ---------- */
+#combat{
+  position:absolute; inset:0; z-index:20; display:flex; align-items:center;
+  justify-content:center; background:rgba(24,20,14,.72); backdrop-filter:blur(2px);
+}
+#combat .card{
+  width:min(460px, 92%); background:var(--paper); border:3px solid var(--card-edge);
+  border-radius:10px 8px 11px 9px; padding:18px 22px; text-align:center;
+  box-shadow:0 12px 40px rgba(0,0,0,.7);
+  background-image:repeating-linear-gradient(52deg, rgba(43,36,28,.05) 0 1px, transparent 1px 4px);
+}
+#combat .mglyph{ font-size:52px; filter:drop-shadow(2px 3px 2px rgba(0,0,0,.35)); }
+#combat h2{ font-family:var(--display); font-size:26px; letter-spacing:.06em; color:var(--oxblood); }
+#combat .mstats{ font-size:13px; color:var(--ink-soft); margin:4px 0 10px; letter-spacing:.05em; }
+.hpTrack{ height:14px; border-radius:7px; background:#c9b98f; border:1px solid var(--card-edge); overflow:hidden; margin:4px 0 2px; }
+.hpTrack i{ display:block; height:100%; background:linear-gradient(var(--oxblood), #6d2c1d); transition:width .35s ease; }
+.hpTrack.mine i{ background:linear-gradient(#4f7d4a, #365c33); }
+#combat .vs{ font-family:var(--display); margin:8px 0 2px; font-size:12px; letter-spacing:.25em; color:var(--ink-soft); }
+#combat .acts{ display:flex; gap:8px; justify-content:center; margin-top:14px; flex-wrap:wrap; }
+#combat .acts button, .bigBtn{
+  font-family:var(--display); font-size:15px; letter-spacing:.05em; padding:8px 16px;
+  background:linear-gradient(#e6d7b4, var(--card)); color:var(--ink);
+  border:2px solid var(--card-edge); border-radius:6px; box-shadow:0 2px 0 var(--card-edge);
+}
+#combat .acts button:hover:not(:disabled), .bigBtn:hover:not(:disabled){ background:linear-gradient(#f2e6c8, #e0cf9f); transform:translateY(-1px); }
+#combat .acts button:disabled{ opacity:.45; box-shadow:none; }
+#combat .hint{ margin-top:10px; font-size:12px; font-style:italic; color:var(--ink-soft); }
+
+/* ---------- SIDEBAR ---------- */
+#side{
+  width:315px; display:flex; flex-direction:column; gap:10px; min-height:0;
+}
+.panel{
+  background:var(--paper); border:2px solid var(--card-edge); border-radius:8px 6px 9px 7px;
+  padding:10px 12px; box-shadow:2px 3px 8px rgba(0,0,0,.45);
+  background-image:repeating-linear-gradient(52deg, rgba(43,36,28,.04) 0 1px, transparent 1px 4px);
+}
+.panel h3{
+  font-family:var(--display); font-size:12px; letter-spacing:.28em; text-transform:uppercase;
+  color:var(--oxblood); border-bottom:1px solid var(--card-edge); padding-bottom:4px; margin-bottom:7px;
+}
+#sheet .who{ display:flex; align-items:baseline; gap:8px; }
+#sheet .who .nm{ font-family:var(--display); font-size:20px; }
+#sheet .who .cl{ font-size:12px; color:var(--ink-soft); letter-spacing:.1em; text-transform:uppercase; }
+#sheet .statrow{ display:flex; gap:6px; margin-top:7px; flex-wrap:wrap; }
+#sheet .stat{
+  flex:1; min-width:52px; text-align:center; background:rgba(43,36,28,.06);
+  border:1px solid var(--card-edge); border-radius:5px; padding:3px 2px;
+}
+#sheet .stat b{ display:block; font-family:var(--display); font-size:16px; }
+#sheet .stat span{ font-size:9px; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-soft); }
+#sheet .hpline{ display:flex; justify-content:space-between; font-size:12px; margin-top:8px; font-family:var(--display); }
+#sheet .cond{ margin-top:6px; font-size:11.5px; color:var(--oxblood); font-style:italic; }
+#inv .item{
+  display:flex; align-items:center; gap:7px; width:100%; text-align:left;
+  background:none; border:0; border-bottom:1px dashed rgba(168,144,94,.5);
+  padding:4px 2px; font-size:13px; color:var(--ink);
+}
+#inv button.item:hover:not(:disabled){ background:rgba(200,162,74,.22); }
+#inv button.item:disabled{ opacity:.55; }
+#inv .item small{ color:var(--ink-soft); font-size:11px; margin-left:auto; text-align:right; }
+#inv .gearHead{ font-size:10px; letter-spacing:.2em; text-transform:uppercase; color:var(--ink-soft); margin-top:6px; }
+#logWrap{ flex:1; display:flex; flex-direction:column; min-height:0; }
+#log{ flex:1; overflow-y:auto; font-size:12.5px; line-height:1.45; }
+#log p{ padding:3px 2px; border-bottom:1px solid rgba(168,144,94,.28); }
+#log p:first-child{ animation:logIn .3s ease; }
+@keyframes logIn{ from{ background:rgba(200,162,74,.4); } }
+#log .roll{ color:var(--ink-soft); }
+#log .good{ color:#3f6839; font-weight:600; }
+#log .bad{ color:var(--oxblood); font-weight:600; }
+#log .event{ color:var(--ink); font-weight:600; }
+
+/* ---------- BOTTOM BAR ---------- */
+#bottom{
+  display:flex; gap:10px; padding:10px; align-items:stretch; height:158px;
+}
+#tray{
+  display:flex; align-items:center; gap:14px; padding:10px 16px;
+  background:
+    repeating-linear-gradient(31deg, rgba(255,255,255,.03) 0 2px, transparent 2px 6px),
+    linear-gradient(#3a2b1d, #241a10);
+  border:3px solid #14100a; border-radius:12px;
+  box-shadow: inset 0 2px 14px rgba(0,0,0,.8), 0 2px 6px rgba(0,0,0,.5);
+}
+#dice{ display:flex; gap:12px; align-items:flex-end; }
+.dieWrap{ display:flex; flex-direction:column; align-items:center; gap:3px; }
+.die{
+  width:54px; height:54px; display:flex; align-items:center; justify-content:center;
+  background:linear-gradient(145deg, var(--bone), #d3c5a2);
+  color:var(--ink); font-family:var(--display); font-size:20px; font-weight:700;
+  box-shadow:2px 3px 5px rgba(0,0,0,.6);
+  touch-action:none; user-select:none; -webkit-user-select:none; border:0;
+}
+.die[data-sides="4"]{ clip-path:polygon(50% 4%, 98% 96%, 2% 96%); }
+.die[data-sides="4"] .face{ margin-top:12px; }
+.die[data-sides="6"]{ border-radius:9px; }
+.die[data-sides="8"]{ clip-path:polygon(50% 2%, 98% 50%, 50% 98%, 2% 50%); }
+.die[data-sides="10"]{ clip-path:polygon(50% 2%, 98% 42%, 50% 98%, 2% 42%); }
+.die[data-sides="12"]{ clip-path:polygon(50% 2%, 97% 37%, 79% 98%, 21% 98%, 3% 37%); }
+.die[data-sides="20"]{ clip-path:polygon(50% 2%, 95% 26%, 95% 74%, 50% 98%, 5% 74%, 5% 26%); }
+.dieWrap label{ font-size:10px; color:var(--card); letter-spacing:.15em; font-family:var(--display); }
+.die.needed{ animation:needPulse 1.1s ease-in-out infinite; }
+@keyframes needPulse{
+  50%{ filter:drop-shadow(0 0 10px var(--brass)) brightness(1.15); transform:translateY(-3px); }
+}
+.die.inert{ opacity:.3; pointer-events:none; }
+.die.rolling{ animation:tumble var(--dur,.8s) cubic-bezier(.25,.7,.35,1) forwards; position:relative; z-index:30; }
+@keyframes tumble{
+  18%{ transform:translate(calc(var(--tx) * .65), calc(var(--ty) * .65)) rotate(210deg) scale(1.18); }
+  48%{ transform:translate(var(--tx), var(--ty)) rotate(430deg) scale(1.08); }
+  78%{ transform:translate(calc(var(--tx) * .3), calc(var(--ty) * .3)) rotate(645deg) scale(1.02); }
+  100%{ transform:translate(0,0) rotate(720deg); }
+}
+#rollout{ min-width:158px; text-align:center; color:var(--card); font-family:var(--display); }
+#rollout .big{ font-size:37px; line-height:1; color:var(--bone); text-shadow:0 0 12px rgba(200,162,74,.5); }
+#rollout .mods{ font-size:13px; margin-top:3px; color:var(--brass); }
+#rollout .dim{ font-size:12px; color:var(--card); opacity:.6; }
+
+#promptBox{
+  flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:8px; text-align:center; padding:6px 14px;
+}
+#promptTxt{
+  font-family:var(--display); font-size:17.5px; color:var(--card); line-height:1.35;
+  text-shadow:0 1px 3px rgba(0,0,0,.7);
+}
+#promptTxt.waiting{ animation:promptPulse 1.5s ease-in-out infinite; }
+@keyframes promptPulse{ 50%{ color:var(--bone); } }
+#escapeBtn{
+  font-size:18px; padding:10px 26px;
+  background:linear-gradient(var(--brass), #93712c); border-color:#6e5420; color:var(--ink);
+}
+
+#previewBox{
+  width:270px; display:flex; gap:12px; align-items:center; padding:8px 12px;
+  background:rgba(0,0,0,.25); border:1px dashed rgba(216,198,157,.4); border-radius:10px;
+}
+#pvTile{ position:relative; width:96px; height:96px; flex-shrink:0; transition:transform .25s ease; --tile:96px; }
+#pvTile .tile{ position:relative; width:96px; height:96px; }
+#pvSide{ flex:1; display:flex; flex-direction:column; gap:6px; }
+#pvName{ font-family:var(--display); color:var(--card); font-size:14px; letter-spacing:.08em; }
+#pvSide button{
+  font-family:var(--display); font-size:13.5px; padding:6px 10px; border-radius:6px;
+  border:2px solid var(--card-edge); background:linear-gradient(#e6d7b4, var(--card)); color:var(--ink);
+}
+#pvSide button:hover:not(:disabled){ background:linear-gradient(#f2e6c8, #e0cf9f); }
+#pvSide button:disabled{ opacity:.45; }
+#pvWhy{ font-size:10.5px; color:#d9a08c; line-height:1.3; min-height:14px; }
+#deckOnly{ color:var(--card); font-family:var(--display); text-align:center; width:100%; font-size:13px; letter-spacing:.1em; opacity:.8; }
+
+/* ---------- OVERLAY SCREENS ---------- */
+#screen{
+  position:fixed; inset:0; z-index:50; overflow-y:auto;
+  background:
+    repeating-linear-gradient(74deg, rgba(0,0,0,.06) 0 2px, transparent 2px 5px),
+    linear-gradient(var(--felt), var(--felt-dark));
+  display:flex; align-items:center; justify-content:center; padding:20px;
+}
+#screen[hidden]{ display:none; }
+.box{
+  width:min(860px, 96%); background:var(--paper); border:3px solid var(--card-edge);
+  border-radius:12px 9px 13px 10px; padding:26px 30px; text-align:center;
+  box-shadow:0 18px 60px rgba(0,0,0,.7);
+  background-image:repeating-linear-gradient(52deg, rgba(43,36,28,.04) 0 1px, transparent 1px 4px);
+}
+.box h1{ font-family:var(--display); font-size:34px; letter-spacing:.1em; color:var(--ink); }
+.box h1 em{ color:var(--oxblood); font-style:normal; }
+.box .sub{ font-family:var(--display); letter-spacing:.3em; font-size:11px; text-transform:uppercase; color:var(--ink-soft); margin:2px 0 16px; }
+#nameRow{ margin:6px 0 16px; }
+#nameRow input{
+  font-family:var(--display); font-size:18px; padding:8px 14px; width:min(300px,80%);
+  border:2px solid var(--card-edge); border-radius:6px; background:var(--bone); color:var(--ink); text-align:center;
+}
+#classes{ display:grid; grid-template-columns:repeat(auto-fit, minmax(170px,1fr)); gap:12px; margin-bottom:16px; }
+.ccard{
+  border:2px solid var(--card-edge); border-radius:8px 6px 9px 7px; padding:12px 10px;
+  background:linear-gradient(#efe3c6, var(--card)); text-align:center; transition:transform .15s ease;
+}
+.ccard:hover{ transform:translateY(-3px); box-shadow:0 6px 14px rgba(0,0,0,.3); }
+.ccard.sel{ border-color:var(--oxblood); box-shadow:0 0 0 3px rgba(147,64,45,.4), 0 6px 14px rgba(0,0,0,.3); }
+.ccard .cg{ font-size:30px; }
+.ccard h2{ font-family:var(--display); font-size:19px; letter-spacing:.08em; margin:2px 0 6px; }
+.ccard .cstats{ font-size:11.5px; line-height:1.55; color:var(--ink-soft); }
+.ccard .ckit{ font-size:11px; margin-top:6px; font-style:italic; color:var(--oxblood); line-height:1.35; }
+.mission{
+  font-style:italic; font-family:var(--display); font-size:15px; line-height:1.5;
+  color:var(--ink-soft); border-top:1px solid var(--card-edge); border-bottom:1px solid var(--card-edge);
+  padding:12px 8px; margin-bottom:18px;
+}
+.summary{ display:flex; justify-content:center; gap:26px; margin:18px 0 22px; flex-wrap:wrap; }
+.summary div{ font-family:var(--display); }
+.summary b{ display:block; font-size:30px; color:var(--oxblood); }
+.summary span{ font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--ink-soft); }
+.deathTale{ font-style:italic; color:var(--ink-soft); margin-bottom:8px; }
+
+@media (prefers-reduced-motion: reduce){
+  *{ animation-duration:.18s !important; transition-duration:.1s !important; }
+  .die.needed, .door.open, #promptTxt.waiting{ animation-iteration-count:2 !important; }
+}
+@media (max-width: 980px){
+  #stage{ flex-direction:column; overflow-y:auto; }
+  #side{ width:auto; }
+  #mapWrap{ min-height:340px; }
+  #bottom{ flex-wrap:wrap; height:auto; }
+  body{ overflow:auto; }
+  #deckBadge{ top:auto; bottom:10px; right:14px; }
+  #tray{ flex-wrap:wrap; justify-content:center; width:100%; }
+  #dice{ flex-wrap:wrap; justify-content:center; }
+  .die{ width:46px; height:46px; font-size:17px; }
+  #previewBox{ width:100%; }
+}
+</style>
+</head>
+<body>
+
+<div id="game">
+  <div id="stage">
+    <div id="mapWrap">
+      <div id="mapTitle">Tile Crawl <b>CC</b></div>
+      <div id="deckBadge"></div>
+      <div id="pan">
+        <div id="tilesLayer"></div>
+        <div id="doorsLayer"></div>
+        <div id="heroTok" hidden></div>
+      </div>
+      <div id="combat" hidden></div>
+    </div>
+    <aside id="side">
+      <div class="panel" id="sheet"></div>
+      <div class="panel" id="inv"></div>
+      <div class="panel" id="logWrap"><h3>Adventure Log</h3><div id="log" aria-live="polite"></div></div>
+    </aside>
+  </div>
+  <footer id="bottom">
+    <div id="tray" aria-label="Dice tray">
+      <div id="dice"></div>
+      <div id="rollout"><div class="dim">The dice are quiet.</div></div>
+    </div>
+    <div id="promptBox"><div id="promptTxt"></div><div id="promptExtra"></div></div>
+    <div id="previewBox"></div>
+  </footer>
+</div>
+
+<div id="screen"></div>
+
+<script>
+'use strict';
+/* ==================================================================
+   TILE CRAWL CC — solo tile-laying dungeon crawler
+   ------------------------------------------------------------------
+   All game data lives in the top-level tables below. Adding a
+   monster, item, tile or event is a one-object append — no other
+   edits required.
+   ================================================================== */
+
+/* ---------------- CONFIG: tuning knobs ---------------- */
+const CONFIG = {
+  startGold: 10,
+  startRations: 2,
+  baseDefense: 8,       // Defense = base + Agility + armor
+  trapDC: 12,
+  fleeDC: 12,
+  vaultThreshold: 7,    // tiles placed before the Vault may appear
+  shallowUntil: 4,      // tiles placed at or below this → monster rolls shift −1
+  deepShiftAt: 10,      // tiles placed at or above this → monster rolls shift +1
+  venomRooms: 3,        // rooms a spider's venom lasts
+  dropOn: 5,            // d6 >= this → slain monster drops an item
+  goldFor12: 20,        // treasure die (d20 gold)
+  logLimit: 70,
+};
+
+/* ---------------- CLASSES ---------------- */
+const CLASSES = [
+  { id:'warrior', name:'Warrior', glyph:'🛡️', hp:14, might:3, agility:1, wits:1, luck:1,
+    weapon:{ name:'Longsword', die:8 }, armor:1, charges:0, chargeName:'',
+    kit:'Longsword (d8). Starts with a Shield (+1 Defense).' },
+  { id:'rogue', name:'Rogue', glyph:'🗡️', hp:10, might:1, agility:3, wits:1, luck:2,
+    weapon:{ name:'Daggers', die:6 }, armor:0, charges:0, chargeName:'',
+    agileFighter:true, trapBonus:2,
+    kit:'Daggers (d6). Attacks with Agility; +2 on trap and lock rolls.' },
+  { id:'mage', name:'Mage', glyph:'🔮', hp:8, might:0, agility:1, wits:3, luck:2,
+    weapon:{ name:'Staff', die:4 }, armor:0, charges:3, chargeName:'Spell',
+    kit:'Staff (d4). 3 Spell charges: auto-hit for d8 + Wits.' },
+  { id:'cleric', name:'Cleric', glyph:'📿', hp:12, might:2, agility:1, wits:2, luck:1,
+    weapon:{ name:'Mace', die:6 }, armor:0, charges:3, chargeName:'Prayer',
+    kit:'Mace (d6). 3 Prayer charges: heal d6 + 2 HP.' },
+];
+
+/* ---------------- TILES: exits are [N,E,S,W] at rotation 0 ---------------- */
+const TILES = [
+  { name:'Corridor',   exits:[1,0,1,0], copies:3 },
+  { name:'Corner',     exits:[1,1,0,0], copies:3 },
+  { name:'T-Junction', exits:[1,1,0,1], copies:2 },
+  { name:'Crossroads', exits:[1,1,1,1], copies:2 },
+  { name:'Dead End',   exits:[1,0,0,0], copies:3 },
+  { name:'Chamber',    exits:[1,1,1,0], copies:2 },
+  { name:'Great Hall', exits:[0,1,0,1], copies:1 },
+];
+
+/* ---------------- MONSTERS: index = d6 result - 1 (+ depth shift) ---------------- */
+const MONSTERS = [
+  { name:'Giant Rat',   glyph:'🐀', hp:4,  def:9,  atk:1, dmgDie:4,  goldDie:4  },
+  { name:'Goblin',      glyph:'👺', hp:6,  def:10, atk:2, dmgDie:6,  goldDie:6  },
+  { name:'Cave Spider', glyph:'🕷️', hp:7,  def:12, atk:3, dmgDie:6,  goldDie:6,  venom:true },
+  { name:'Skeleton',    glyph:'💀', hp:9,  def:12, atk:3, dmgDie:6,  goldDie:8,  tags:['undead'] },
+  { name:'Wraith',      glyph:'👻', hp:10, def:13, atk:4, dmgDie:8,  goldDie:10, tags:['undead'], ignoresArmor:true },
+  { name:'Ogre',        glyph:'👹', hp:14, def:11, atk:4, dmgDie:10, goldDie:12 },
+];
+const BOSS = { name:'Bone Tyrant', glyph:'☠️', hp:24, def:14, atk:5, dmgDie:10, dmgBonus:2,
+               flatGold:50, tags:['undead','boss'], boss:true };
+
+/* ---------------- ITEMS: index = d6 result - 1 ---------------- */
+const ITEMS = [
+  { name:'Healing Draught', glyph:'🧪', kind:'consumable', heal:8,
+    desc:'Drink to heal d8' },
+  { name:'Chainmail', glyph:'⛓️', kind:'passive', desc:'+2 Defense',
+    apply:h=>{ h.armor += 2; } },
+  { name:'Whetstone', glyph:'🪨', kind:'passive', desc:'+1 weapon damage, permanent',
+    apply:h=>{ h.weaponBonus += 1; } },
+  { name:'Torch', glyph:'🔥', kind:'passive', desc:'+1 on all Wits rolls, permanent',
+    apply:h=>{ h.wits += 1; } },
+  { name:'Silver Blade', glyph:'⚔️', kind:'passive', desc:'+2 damage vs the undead',
+    apply:h=>{ h.silver = true; } },
+  { name:'Rope', glyph:'🪢', kind:'passive', desc:'Auto-pass the next trap',
+    apply:h=>{ h.rope += 1; } },
+];
+const RATION = { name:'Ration', glyph:'🍖', kind:'consumable', heal:4,
+                 desc:'Eat to heal d4 (takes your turn)' };
+
+/* ---------------- EVENTS (shrines): index = d6 result - 1 ---------------- */
+const EVENTS = [
+  { name:'Radiant Shrine',  text:'Warm light pours from a cracked idol. You are healed to full.' },
+  { name:'Blessing of Stone', text:'You press your palm to the old altar. +1 permanent max HP.' },
+  { name:'Cursed Altar',    text:'Gold glints on a black altar — and the shadows bite back.' },
+  { name:"Merchant's Pack", text:'An abandoned pack, still full. Two finds inside.' },
+  { name:"Adventurer's Map",text:'A dead adventurer clutches a charcoal map of the halls ahead.' },
+  { name:'Old Bones',       text:'Nothing here but old bones and older dust.' },
+];
+
+/* ---------------- TRAPS: flavors ---------------- */
+const TRAPS = ['a dart volley', 'a collapsing floor', 'a hissing gas vent', 'a swinging blade'];
+
+/* ---------------- ROOM TABLE: d12 ---------------- */
+const ROOM_TABLE = [
+  { min:1,  max:3,  type:'monster',  label:'a monster'  },
+  { min:4,  max:5,  type:'treasure', label:'treasure'   },
+  { min:6,  max:6,  type:'trap',     label:'a trap'     },
+  { min:7,  max:7,  type:'item',     label:'an item'    },
+  { min:8,  max:9,  type:'empty',    label:'an empty room' },
+  { min:10, max:10, type:'event',    label:'a shrine or event' },
+  { min:11, max:11, type:'hoard',    label:'a guarded hoard' },
+  { min:12, max:12, type:'vault',    label:'the Vault'  },
+];
+
+const MISSION = '“The Ember Crown was lost when the lower halls collapsed. Descend, find the vault, take the Crown, and get back to the stair alive.”';
+
+/* ==================================================================
+   PURE HELPERS — rules logic, no rendering
+   ================================================================== */
+const N=0, E=1, S=2, W=3;
+const DX=[0,1,0,-1], DY=[-1,0,1,0];
+const DIRNAME=['north','east','south','west'];
+const opposite = d => (d + 2) % 4;
+const key = (x,y) => x + ',' + y;
+
+function rollDie(sides){ return 1 + Math.floor(Math.random() * sides); }
+
+/* rotate an [N,E,S,W] exit array by `steps` quarter-turns clockwise */
+function rotateExits(exits, steps){
+  const out=[0,0,0,0];
+  for(let i=0;i<4;i++) out[(i+steps)%4] = exits[i];
+  return out;
+}
+/* can a tile (rotated `rot` steps) connect back toward the doorway we entered from?
+   `fromDir` is the direction the hero traveled to reach the new cell. */
+function canConnect(exits, rot, fromDir){
+  return !!rotateExits(exits, rot)[opposite(fromDir)];
+}
+function shuffle(arr){
+  for(let i=arr.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [arr[i],arr[j]] = [arr[j],arr[i]];
+  }
+  return arr;
+}
+function roomEntryFor(r){ return ROOM_TABLE.find(e => r>=e.min && r<=e.max); }
+
+/* derived hero numbers (venom, armor, class quirks live here) */
+function heroAgility(){ const h=state.hero; return h.agility - (h.venom>0 ? 1 : 0); }
+function heroDefense(ignoreArmor){
+  return CONFIG.baseDefense + heroAgility() + (ignoreArmor ? 0 : state.hero.armor);
+}
+function heroAtkMod(){ return state.hero.agileFighter ? heroAgility() : state.hero.might; }
+function heroAtkLabel(){ return state.hero.agileFighter ? 'Agility' : 'Might'; }
+function heroDmgMods(monster){
+  const h=state.hero, mods=[{ v: h.agileFighter?heroAgility():h.might, label: heroAtkLabel() }];
+  if(h.weaponBonus) mods.push({ v:h.weaponBonus, label:'Whetstone' });
+  if(h.silver && monster.tags && monster.tags.includes('undead'))
+    mods.push({ v:2, label:'Silver Blade' });
+  return mods;
+}
+/* monsters scale loosely with depth: gentler near the stair, meaner deep in.
+   Carrying the Crown shifts every monster roll one step harder — the dungeon knows. */
+function depthShift(){
+  let shift = 0;
+  if(state.tilesPlaced <= CONFIG.shallowUntil) shift -= 1;
+  if(state.tilesPlaced >= CONFIG.deepShiftAt) shift += 1;
+  if(state.hero.hasCrown) shift += 1;
+  return shift;
+}
+
+/* ==================================================================
+   STATE — one object holds everything; phase machine drives the UI.
+   phases: 'create' | 'explore' | 'placing' | 'rolling' | 'combat' | 'dead' | 'won'
+   ================================================================== */
+let state = null;
+
+function freshState(){
+  return {
+    phase:'create',
+    hero:null,
+    map:{},                // keyed "x,y" → placed tile entries
+    deck:[],
+    heroPos:{x:0,y:0},
+    prevPos:{x:0,y:0},
+    pendingTile:null,      // { def, rot, visRot, fromDir, to:{x,y}, forceVault }
+    pendingRoll:null,      // { sides, label, mods:[{v,label}], cb(raw,total) }
+    combat:null,           // { m, hp, hoard, vault, step }
+    log:[],
+    tilesPlaced:0,
+    vaultFound:false,
+    foretold:null,         // pre-read d12 from the Adventurer's Map
+    stats:{ rooms:0, kills:0 },
+    rolling:false,         // a die is mid-tumble
+  };
+}
+
+function newGame(clsDef, name){
+  state = freshState();
+  const c = clsDef;
+  state.hero = {
+    name: name || 'Nameless', cls:c.name, glyph:c.glyph,
+    hp:c.hp, maxHp:c.hp,
+    might:c.might, agility:c.agility, wits:c.wits, luck:c.luck,
+    weapon:{ ...c.weapon }, weaponBonus:0, armor:c.armor,
+    charges:c.charges, maxCharges:c.charges, chargeName:c.chargeName,
+    agileFighter:!!c.agileFighter, trapBonus:c.trapBonus||0,
+    gold:CONFIG.startGold, items:[], gear:[], rope:0, silver:false,
+    venom:0, hasCrown:false,
+  };
+  if(c.armor) state.hero.gear.push('Shield (+1 Defense)');
+  for(let i=0;i<CONFIG.startRations;i++) state.hero.items.push({ ...RATION });
+  // build & shuffle the 16-tile deck
+  const deck=[];
+  TILES.forEach(t => { for(let i=0;i<t.copies;i++) deck.push({ name:t.name, exits:t.exits }); });
+  state.deck = shuffle(deck);
+  // fixed Entrance Stair at center, all four exits, already explored
+  state.map[key(0,0)] = {
+    x:0, y:0, name:'Entrance Stair', exits:[1,1,1,1], rot:0,
+    conns:[false,false,false,false], entrance:true, mark:'', fresh:false,
+  };
+  state.phase='explore';
+  clearMapDOM();
+  log(`${state.hero.name} the ${state.hero.cls} descends the entrance stair. The dark smells of cold iron.`, 'event');
+  log('Pick a glowing doorway to push into the dungeon.', '');
+  render();
+}
+
+/* ---------------- LOG ---------------- */
+function log(text, cls){
+  state.log.unshift({ text, cls: cls||'' });
+  if(state.log.length > CONFIG.logLimit) state.log.length = CONFIG.logLimit;
+}
+
+/* ---------------- DICE REQUESTS ---------------- */
+function setRoll(sides, label, mods, cb){
+  state.pendingRoll = { sides, label, mods: mods||[], cb };
+  render();
+}
+function finishRoll(raw){
+  const pr = state.pendingRoll;
+  if(!pr) return;
+  const total = raw + pr.mods.reduce((a,m)=>a+m.v, 0);
+  const modTxt = pr.mods.length
+    ? ' ' + pr.mods.map(m=>(m.v>=0?'+ ':'− ')+Math.abs(m.v)+' '+m.label).join(' ') + ' = ' + total
+    : '';
+  log(`d${pr.sides}: ${raw}${modTxt} — ${pr.label}`, 'roll');
+  state.pendingRoll = null;
+  pr.cb(raw, total);
+  render();
+}
+
+/* ==================================================================
+   EXPLORATION
+   ================================================================== */
+function heroTile(){ return state.map[key(state.heroPos.x, state.heroPos.y)]; }
+
+function clickDoorway(dir){
+  if(state.phase!=='explore' || state.pendingRoll || state.rolling) return;
+  const t = heroTile();
+  const nx = t.x + DX[dir], ny = t.y + DY[dir];
+  const neighbor = state.map[key(nx,ny)];
+  if(t.conns[dir] && neighbor){
+    moveHero(nx, ny);
+  } else if(t.exits[dir] && !neighbor && state.deck.length){
+    beginPlacement(dir, nx, ny);
+  }
+}
+
+function moveHero(nx, ny){
+  state.prevPos = { ...state.heroPos };
+  state.heroPos = { x:nx, y:ny };
+  roomTick();
+  const t = heroTile();
+  log(`You walk ${dirBetween(state.prevPos, state.heroPos)} into the ${t.name}.`, '');
+  if(t.savedMonster){
+    const m = t.savedMonster;
+    t.savedMonster = null;
+    log(`The ${m.name} is still here, and it remembers you.`, 'bad');
+    startCombat(m, { resumedHp:m.savedHp });
+    return;
+  }
+  if(t.entrance && state.hero.hasCrown){
+    log('The entrance stair. Gray daylight leaks down from above. One climb and this is over.', 'good');
+  }
+  render();
+}
+function dirBetween(a,b){
+  for(let d=0;d<4;d++) if(a.x+DX[d]===b.x && a.y+DY[d]===b.y) return DIRNAME[d];
+  return 'onward';
+}
+function roomTick(){
+  const h = state.hero;
+  if(h.venom > 0){
+    h.venom--;
+    if(h.venom===0) log('The spider venom finally burns out of your blood. Agility restored.', 'good');
+  }
+}
+
+function beginPlacement(fromDir, nx, ny){
+  const def = state.deck.pop();
+  const forceVault = state.deck.length===0 && !state.vaultFound;
+  state.pendingTile = { def, rot:0, visRot:0, fromDir, to:{x:nx,y:ny}, forceVault };
+  state.phase='placing';
+  log(`You draw a tile from the stack: the ${def.name}.`, '');
+  if(forceVault) log('It is the last tile in the deck. Something heavy waits behind it.', 'bad');
+  render();
+}
+function rotatePending(){
+  const p = state.pendingTile;
+  if(!p || state.phase!=='placing') return;
+  p.rot = (p.rot + 1) % 4;
+  p.visRot += 90;
+  render();
+}
+function placePending(){
+  const p = state.pendingTile;
+  if(!p || state.phase!=='placing' || !canConnect(p.def.exits, p.rot, p.fromDir)) return;
+  const exits = rotateExits(p.def.exits, p.rot);
+  const entry = {
+    x:p.to.x, y:p.to.y, name:p.def.name, exits, rot:p.rot,
+    conns:[false,false,false,false], mark:'', fresh:true,
+  };
+  // only the connection back to the origin tile is recorded; other exits that
+  // face already-placed tiles simply read as sealed walls
+  entry.conns[opposite(p.fromDir)] = true;
+  heroTile().conns[p.fromDir] = true;
+  state.map[key(entry.x, entry.y)] = entry;
+  state.tilesPlaced++;
+  state.stats.rooms++;
+  const forceVault = p.forceVault;
+  const foretold = state.foretold;
+  state.pendingTile = null;
+  state.prevPos = { ...state.heroPos };
+  state.heroPos = { x:entry.x, y:entry.y };
+  roomTick();
+  if(forceVault){
+    log(`You lay the ${entry.name} and step in — and the wall beyond it is a vault door.`, 'event');
+    enterVault(entry);
+  } else if(foretold != null){
+    state.foretold = null;
+    log(`The dead adventurer's map was true: ${roomEntryFor(foretold).label} waits here.`, 'event');
+    resolveRoom(foretold, entry);
+  } else {
+    state.phase='rolling';
+    setRoll(12, `what waits in the ${entry.name}?`, [], raw => resolveRoom(raw, entry));
+  }
+  render();
+}
+
+/* ---------------- ROOM CONTENT ---------------- */
+function resolveRoom(r, tile){
+  const entry = roomEntryFor(r);
+  switch(entry.type){
+    case 'monster':
+      log('Something moves in the dark ahead.', 'bad');
+      askWhichMonster(tile, false);
+      break;
+    case 'treasure':
+      tile.mark='💰';
+      log('Scattered coin glitters between the flagstones.', 'good');
+      state.phase='rolling';
+      setRoll(CONFIG.goldFor12, 'count the coin', [], raw => {
+        state.hero.gold += raw;
+        log(`You pocket ${raw} gold.`, 'good');
+        backToExplore();
+      });
+      break;
+    case 'trap':
+      resolveTrap(tile);
+      break;
+    case 'item':
+      tile.mark='◆';
+      log('Something useful has been dropped here.', '');
+      state.phase='rolling';
+      setRoll(6, 'what did you find?', [], raw => {
+        gainItem(ITEMS[raw-1]);
+        backToExplore();
+      });
+      break;
+    case 'empty':
+      tile.mark='';
+      log(pick(['Dust, echoes, and nothing else.', 'Empty. Your torchlight finds only bare stone.',
+                'A bare room. Somewhere far off, water drips.', 'Nothing here — this time.']), '');
+      backToExplore();
+      break;
+    case 'event':
+      tile.mark='✦';
+      log('A strange stillness hangs over this room.', 'event');
+      state.phase='rolling';
+      setRoll(6, 'fate stirs — what is this place?', [], raw => runEvent(raw, tile));
+      break;
+    case 'hoard':
+      tile.mark='💰';
+      log('A heap of treasure — and its owner, between you and it.', 'bad');
+      askWhichMonster(tile, true);
+      break;
+    case 'vault':
+      if(state.tilesPlaced >= CONFIG.vaultThreshold && !state.vaultFound){
+        enterVault(tile);
+      } else {
+        tile.mark='';
+        log('A great sealed door stands here, bound in black iron. It will not open — not yet. The room is empty.', '');
+        backToExplore();
+      }
+      break;
+  }
+  render();
+}
+function pick(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+
+function askWhichMonster(tile, hoard){
+  state.phase='rolling';
+  setRoll(6, 'what lurks here?', [], raw => {
+    const shift = depthShift();
+    const idx = Math.max(0, Math.min(MONSTERS.length-1, raw - 1 + shift));
+    if(shift && state.hero.hasCrown) log('The Crown hums against your chest. The dungeon knows.', 'bad');
+    startCombat({ ...MONSTERS[idx] }, { hoard });
+  });
+}
+
+function enterVault(tile){
+  state.vaultFound = true;
+  tile.mark='♛';
+  tile.vault = true;
+  log('THE VAULT. The Ember Crown sits on a plinth of black stone — and its keeper unfolds itself from a throne of ribs. The Bone Tyrant rises.', 'bad');
+  startCombat({ ...BOSS }, { vault:true });
+}
+
+function resolveTrap(tile){
+  const flavor = pick(TRAPS);
+  tile.mark='▲';
+  if(state.hero.rope > 0){
+    state.hero.rope--;
+    log(`A trap — ${flavor}! Your rope catches you before it springs. Passed automatically.`, 'good');
+    backToExplore();
+    return;
+  }
+  log(`A trap — ${flavor}!`, 'bad');
+  const mods = [{ v:heroAgility(), label:'Agility' }];
+  if(state.hero.trapBonus) mods.push({ v:state.hero.trapBonus, label:'Rogue' });
+  state.phase='rolling';
+  setRoll(20, `dodge ${flavor} (DC ${CONFIG.trapDC})`, mods, (raw,total) => {
+    if(total >= CONFIG.trapDC){
+      log('You twist clear at the last instant. The trap snaps shut on empty air.', 'good');
+      backToExplore();
+    } else {
+      log('Too slow — it catches you.', 'bad');
+      setRoll(6, 'take the hit', [], raw2 => {
+        if(damageHero(raw2, `the trap (${flavor})`)) backToExplore();
+      });
+    }
+  });
+}
+
+function gainItem(def){
+  const h = state.hero;
+  if(def.kind === 'consumable'){
+    h.items.push({ ...def });
+    log(`Found: ${def.glyph} ${def.name} — ${def.desc}.`, 'good');
+  } else {
+    def.apply(h);
+    h.gear.push(`${def.name} (${def.desc})`);
+    log(`Found: ${def.glyph} ${def.name} — ${def.desc}. You put it to use at once.`, 'good');
+  }
+}
+
+function runEvent(raw, tile){
+  const ev = EVENTS[raw-1];
+  log(`${ev.name}: ${ev.text}`, 'event');
+  const h = state.hero;
+  switch(raw){
+    case 1: h.hp = h.maxHp; log('Fully healed.', 'good'); backToExplore(); break;
+    case 2: h.maxHp++; h.hp++; log(`Max HP is now ${h.maxHp}.`, 'good'); backToExplore(); break;
+    case 3: // cursed altar: d6 damage, 30 gold
+      state.phase='rolling';
+      setRoll(6, 'the altar takes its price', [], r2 => {
+        if(damageHero(r2, 'the cursed altar')){
+          h.gold += 30;
+          log('You scoop 30 gold from the black stone. Worth it. Probably.', 'good');
+          backToExplore();
+        }
+      });
+      break;
+    case 4: // merchant's pack: two random items
+      state.phase='rolling';
+      setRoll(6, 'first find in the pack', [], r1 => {
+        gainItem(ITEMS[r1-1]);
+        setRoll(6, 'second find in the pack', [], r2 => {
+          gainItem(ITEMS[r2-1]);
+          backToExplore();
+        });
+      });
+      break;
+    case 5: // adventurer's map: read the next room in advance
+      state.phase='rolling';
+      setRoll(12, 'read the map — the next room holds…', [], r2 => {
+        state.foretold = r2;
+        log(`The map is clear: beyond the next door you place lies ${roomEntryFor(r2).label}.`, 'event');
+        backToExplore();
+      });
+      break;
+    default: backToExplore(); break;
+  }
+}
+
+function backToExplore(){
+  state.phase='explore';
+  if(!state.deck.length){
+    const t = heroTile();
+    if(!t.entrance && !state._warnedDeck){
+      state._warnedDeck = true;
+      log('The tile stack is spent. There is nothing left to reveal — only the road back to the stair.', 'event');
+    }
+  }
+  checkCollapse();
+  render();
+}
+
+/* failsafe: if every open doorway has been walled off before the Vault is
+   found, the dungeon collapses the hero straight into it — a run can never
+   soft-lock. */
+function frontierExists(){
+  for(const k in state.map){
+    const t = state.map[k];
+    for(let d=0; d<4; d++)
+      if(t.exits[d] && !state.map[key(t.x+DX[d], t.y+DY[d])]) return true;
+  }
+  return false;
+}
+function checkCollapse(){
+  if(state.phase!=='explore' || !state.deck.length || state.vaultFound) return;
+  if(frontierExists()) return;
+  log('Every way forward is walled off — then the floor shudders, cracks, and drops you into a hidden hall below.', 'event');
+  state.deck.length = 0; // the rest of the deck is lost in the collapse
+  enterVault(heroTile());
+}
+
+/* ==================================================================
+   COMBAT
+   ================================================================== */
+function startCombat(m, opts){
+  opts = opts || {};
+  state.combat = {
+    m, hp: opts.resumedHp != null ? opts.resumedHp : m.hp,
+    hoard: !!opts.hoard, vault: !!opts.vault, step:'menu',
+    tileKey: key(state.heroPos.x, state.heroPos.y),
+  };
+  state.phase='combat';
+  heroTile().mark = m.glyph;
+  if(!opts.resumedHp) log(`${m.name} — HP ${m.hp}, Defense ${m.def}. It attacks anything that breathes.`, 'bad');
+  render();
+}
+function combatBusy(){ return state.combat.step !== 'menu' || !!state.pendingRoll || state.rolling; }
+
+function doAttack(){
+  const c = state.combat; if(combatBusy()) return;
+  c.step='acting';
+  setRoll(20, `attack the ${c.m.name}`, [{ v:heroAtkMod(), label:heroAtkLabel() }], (raw,total) => {
+    const crit = raw === 20;
+    if(crit){
+      log('NATURAL 20 — a critical hit! Double damage dice!', 'good');
+      setRoll(state.hero.weapon.die, 'critical damage (die is doubled)', heroDmgMods(c.m), (r2,t2) => {
+        applyPlayerDamage(r2*2 + (t2 - r2)); // double the die, modifiers once
+      });
+    } else if(total >= c.m.def){
+      log(`${total} vs Defense ${c.m.def} — a hit!`, 'good');
+      setRoll(state.hero.weapon.die, `${state.hero.weapon.name} damage`, heroDmgMods(c.m), (r2,t2) => {
+        applyPlayerDamage(t2);
+      });
+    } else {
+      log(`${total} vs Defense ${c.m.def} — your ${state.hero.weapon.name.toLowerCase()} bites stone. Miss.`, 'bad');
+      monsterTurn();
+    }
+  });
+}
+function applyPlayerDamage(dmg){
+  const c = state.combat;
+  c.hp -= dmg;
+  log(`You deal ${dmg} damage to the ${c.m.name}.`, 'good');
+  if(c.hp <= 0) victory();
+  else monsterTurn();
+}
+function doSpell(){
+  const c = state.combat; if(combatBusy() || state.hero.charges<1) return;
+  state.hero.charges--;
+  c.step='acting';
+  log('You speak the burning word. The bolt cannot miss.', 'event');
+  setRoll(8, 'arcane bolt (auto-hit)', [{ v:state.hero.wits, label:'Wits' }], (raw,total) => {
+    applyPlayerDamage(total);
+  });
+}
+function doPrayer(){
+  const c = state.combat; if(combatBusy() || state.hero.charges<1) return;
+  state.hero.charges--;
+  c.step='acting';
+  log('You whisper the old litany and light knits your wounds.', 'event');
+  setRoll(6, 'prayer of mending', [{ v:2, label:'blessing' }], (raw,total) => {
+    healHero(total);
+    monsterTurn();
+  });
+}
+function doFlee(){
+  const c = state.combat; if(combatBusy()) return;
+  c.step='acting';
+  setRoll(20, `flee the ${c.m.name} (DC ${CONFIG.fleeDC})`, [{ v:heroAgility(), label:'Agility' }], (raw,total) => {
+    if(total >= CONFIG.fleeDC){
+      const t = state.map[c.tileKey];
+      t.savedMonster = { ...c.m, savedHp:c.hp };
+      log(`You break away and sprint back the way you came. The ${c.m.name} does not follow — it waits.`, 'good');
+      state.combat = null;
+      const from = { ...state.heroPos };
+      state.heroPos = { ...state.prevPos };
+      state.prevPos = from;
+      state.phase='explore';
+      render();
+    } else {
+      log('You stumble on loose stone — and it is on you before you can turn!', 'bad');
+      monsterTurn(true);
+    }
+  });
+}
+function monsterTurn(thenMenu){
+  const c = state.combat;
+  const m = c.m;
+  setRoll(20, `the ${m.name} strikes — throw its attack`, [{ v:m.atk, label:m.name }], (raw,total) => {
+    const def = heroDefense(m.ignoresArmor);
+    if(total >= def){
+      const armorNote = m.ignoresArmor ? ' It passes straight through your armor.' : '';
+      log(`${total} vs your Defense ${def} — it hits!${armorNote}`, 'bad');
+      const mods = m.dmgBonus ? [{ v:m.dmgBonus, label:'tyranny' }] : [];
+      setRoll(m.dmgDie, `the ${m.name}'s damage`, mods, (r2,t2) => {
+        if(!damageHero(t2, 'the '+m.name)) return;
+        if(m.venom && state.hero.venom===0){
+          state.hero.venom = CONFIG.venomRooms;
+          log(`Venom floods the wound. −1 Agility for ${CONFIG.venomRooms} rooms.`, 'bad');
+        }
+        c.step='menu';
+        render();
+      });
+    } else {
+      log(`${total} vs your Defense ${def} — you turn the blow aside.`, 'good');
+      c.step='menu';
+      render();
+    }
+  });
+}
+function useConsumable(idx){
+  const h = state.hero;
+  const inCombat = state.phase==='combat';
+  if(inCombat && combatBusy()) return;
+  if(!inCombat && (state.phase!=='explore' || state.pendingRoll || state.rolling)) return;
+  const it = h.items[idx];
+  if(!it) return;
+  h.items.splice(idx,1);
+  if(inCombat) state.combat.step='acting';
+  log(`You use the ${it.name}.`, '');
+  state.phase = inCombat ? 'combat' : 'rolling';
+  setRoll(it.heal, `${it.name} — how much does it mend?`, [], raw => {
+    healHero(raw);
+    if(inCombat){
+      log('The moment costs you — it moves.', '');
+      monsterTurn();
+    } else backToExplore();
+  });
+}
+function healHero(n){
+  const h = state.hero;
+  const before = h.hp;
+  h.hp = Math.min(h.maxHp, h.hp + n);
+  log(`Healed ${h.hp - before} HP (${h.hp}/${h.maxHp}).`, 'good');
+}
+function damageHero(n, source){
+  const h = state.hero;
+  h.hp -= n;
+  log(`You take ${n} damage from ${source} (${Math.max(0,h.hp)}/${h.maxHp}).`, 'bad');
+  if(h.hp <= 0){
+    h.hp = 0;
+    state.phase='dead';
+    state.combat=null;
+    state.pendingRoll=null;
+    log(`${h.name} the ${h.cls} falls. The dungeon keeps what it takes.`, 'bad');
+    render();
+    return false;
+  }
+  return true;
+}
+
+function victory(){
+  const c = state.combat;
+  const m = c.m;
+  state.stats.kills++;
+  const t = state.map[c.tileKey];
+  t.mark = '✕';
+  log(`The ${m.name} collapses. ${pick(['It will not rise again.','Silence returns to the room.','You catch your breath over the remains.'])}`, 'good');
+  if(c.vault){
+    state.hero.gold += m.flatGold;
+    state.hero.hasCrown = true;
+    t.mark='♛';
+    log(`You lift the EMBER CROWN from its plinth — it is warm as a coal — and take ${m.flatGold} gold from the vault floor.`, 'good');
+    log('Every shadow in the dungeon turns toward you at once. Get back to the stair.', 'bad');
+    dropCheck();
+    return;
+  }
+  setRoll(m.goldDie, 'loot the corpse', [], raw => {
+    state.hero.gold += raw;
+    log(`You find ${raw} gold on the ${m.name}.`, 'good');
+    if(c.hoard){
+      setRoll(20, 'the hoard — doubled!', [], r2 => {
+        state.hero.gold += r2*2;
+        log(`The hoard yields ${r2} × 2 = ${r2*2} gold!`, 'good');
+        dropCheck();
+      });
+    } else dropCheck();
+  });
+}
+function dropCheck(){
+  setRoll(6, 'did it drop anything? (5–6: yes)', [], raw => {
+    if(raw >= CONFIG.dropOn){
+      setRoll(6, 'what dropped?', [], r2 => {
+        gainItem(ITEMS[r2-1]);
+        endCombat();
+      });
+    } else {
+      log('Nothing else worth carrying.', '');
+      endCombat();
+    }
+  });
+}
+function endCombat(){
+  state.combat = null;
+  backToExplore();
+}
+
+function escapeDungeon(){
+  if(state.phase!=='explore' || !state.hero.hasCrown || !heroTile().entrance) return;
+  state.phase='won';
+  log(`${state.hero.name} climbs into daylight with the Ember Crown. The dungeon howls below — and is sealed behind you.`, 'good');
+  render();
+}
+
+/* ==================================================================
+   DICE TRAY — the player throws every die; results are Math.random()
+   at release, the tumble is purely cosmetic.
+   ================================================================== */
+const DICE_SIDES = [4,6,8,10,12,20];
+const diceEls = {};
+let dragInfo = null;
+
+function buildDice(){
+  const wrap = document.getElementById('dice');
+  DICE_SIDES.forEach(s => {
+    const dw = document.createElement('div'); dw.className='dieWrap';
+    const d = document.createElement('button');
+    d.className='die'; d.dataset.sides=s; d.setAttribute('aria-label','d'+s+' die');
+    d.innerHTML = `<span class="face">${s}</span>`;
+    const lab = document.createElement('label'); lab.textContent='d'+s;
+    dw.appendChild(d); dw.appendChild(lab); wrap.appendChild(dw);
+    diceEls[s]=d;
+    d.addEventListener('pointerdown', ev => {
+      if(!dieUsable(s)) return;
+      dragInfo = { sides:s, x0:ev.clientX, y0:ev.clientY };
+      d.setPointerCapture(ev.pointerId);
+    });
+    d.addEventListener('pointerup', ev => {
+      if(!dragInfo || dragInfo.sides!==s) return;
+      const dx = ev.clientX - dragInfo.x0, dy = ev.clientY - dragInfo.y0;
+      dragInfo = null;
+      throwDie(s, dx, dy);
+    });
+    d.addEventListener('keydown', ev => {
+      if((ev.key==='Enter'||ev.key===' ') && dieUsable(s)){
+        ev.preventDefault();
+        throwDie(s, 0, -20); // gentle keyboard throw
+      }
+    });
+  });
+}
+function dieUsable(sides){
+  if(state.rolling) return false;
+  if(state.pendingRoll) return state.pendingRoll.sides === sides;
+  // free practice throws are allowed when nothing is being asked
+  return ['explore','placing'].includes(state.phase);
+}
+function throwDie(sides, dx, dy){
+  const d = diceEls[sides];
+  const dist = Math.min(Math.hypot(dx,dy), 240);
+  const strength = Math.max(.25, dist/240);           // click = gentle throw
+  const ang = dist>6 ? Math.atan2(dy,dx) : (Math.random()*Math.PI*2);
+  const travel = 20 + strength*70;
+  d.style.setProperty('--tx', (Math.cos(ang)*travel).toFixed(0)+'px');
+  d.style.setProperty('--ty', (Math.max(-40, Math.min(0, Math.sin(ang)*travel)) - 10).toFixed(0)+'px');
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const dur = reduced ? 220 : 700 + strength*220;     // ~700–920ms
+  d.style.setProperty('--dur', dur+'ms');
+  const isPending = !!state.pendingRoll && state.pendingRoll.sides===sides;
+  const raw = rollDie(sides);                          // decided at release
+  state.rolling = true;
+  render();
+  d.classList.add('rolling');
+  const face = d.querySelector('.face');
+  const spin = setInterval(()=>{ face.textContent = rollDie(sides); }, 70);
+  setTimeout(() => {
+    clearInterval(spin);
+    d.classList.remove('rolling');
+    face.textContent = raw;
+    state.rolling = false;
+    showRollout(sides, raw, isPending ? state.pendingRoll : null);
+    if(isPending) setTimeout(()=>finishRoll(raw), 260);
+    else render();
+  }, dur);
+}
+function showRollout(sides, raw, pr){
+  const out = document.getElementById('rollout');
+  if(pr && pr.mods.length){
+    const total = raw + pr.mods.reduce((a,m)=>a+m.v,0);
+    const parts = pr.mods.map(m=>(m.v>=0?'+ ':'− ')+Math.abs(m.v)+' '+m.label).join(' ');
+    out.innerHTML = `<div class="big">${raw}</div><div class="mods">${parts} = <b>${total}</b></div>`;
+  } else if(pr){
+    out.innerHTML = `<div class="big">${raw}</div><div class="mods">d${sides}</div>`;
+  } else {
+    out.innerHTML = `<div class="big">${raw}</div><div class="dim">d${sides} — a practice throw</div>`;
+  }
+}
+
+/* ==================================================================
+   RENDERING — one render() redraws everything from state
+   ================================================================== */
+const TILE_STEP = 112; // tile size + gutter
+const tileDom = {};    // key → element (tiles persist so animations survive re-render)
+
+function clearMapDOM(){
+  document.getElementById('tilesLayer').innerHTML='';
+  for(const k in tileDom) delete tileDom[k];
+}
+
+function render(){
+  if(!state){ return; }
+  renderScreens();
+  if(state.phase==='create') return;
+  renderMap();
+  renderCombat();
+  renderSheet();
+  renderInv();
+  renderLog();
+  renderBottom();
+}
+
+function renderMap(){
+  const layer = document.getElementById('tilesLayer');
+  const doors = document.getElementById('doorsLayer');
+  for(const k in state.map){
+    const t = state.map[k];
+    let el = tileDom[k];
+    if(!el){
+      el = document.createElement('div');
+      el.className = 'tile' + (t.entrance?' entrance':'') + (t.fresh?' spawn':'');
+      t.fresh = false;
+      el.style.left = (t.x*TILE_STEP - 52)+'px';
+      el.style.top  = (t.y*TILE_STEP - 52)+'px';
+      el.style.transform = `rotate(${t.rot*90}deg)`;
+      const base = TILES.find(x=>x.name===t.name);
+      const ex = t.entrance ? [1,1,1,1] : base.exits;
+      el.innerHTML = `<div class="art">
+        ${ex[N]?'<div class="arm n"></div>':''}${ex[E]?'<div class="arm e"></div>':''}
+        ${ex[S]?'<div class="arm s"></div>':''}${ex[W]?'<div class="arm w"></div>':''}
+        <div class="floor"></div></div>
+        <div class="mark"></div>
+        <div class="tname" style="transform:rotate(${-t.rot*90}deg)">${t.entrance?'⌂ stair':t.name}</div>`;
+      layer.appendChild(el);
+      tileDom[k]=el;
+    }
+    const markEl = el.querySelector('.mark');
+    const showMark = t.savedMonster ? t.savedMonster.glyph : t.mark;
+    markEl.textContent = showMark || '';
+    markEl.style.transform = `translate(-50%,-50%) rotate(${-t.rot*90}deg)`;
+    markEl.className = 'mark' + ((showMark==='✕'||showMark==='▲') ? ' small':'');
+  }
+  // doorways: rebuilt every render
+  doors.innerHTML='';
+  const ht = heroTile();
+  for(const k in state.map){
+    const t = state.map[k];
+    const isHeroTile = t===ht;
+    for(let d=0; d<4; d++){
+      const nx=t.x+DX[d], ny=t.y+DY[d];
+      const neighbor = state.map[key(nx,ny)];
+      const px = t.x*TILE_STEP + DX[d]*54, py = t.y*TILE_STEP + DY[d]*54;
+      if(isHeroTile && state.phase==='explore' && !state.pendingRoll){
+        if(t.conns[d] && neighbor){
+          addDoor(doors,'walk',px,py,['↑','→','↓','←'][d],`Walk ${DIRNAME[d]}`,()=>clickDoorway(d));
+          continue;
+        }
+        if(t.exits[d] && !neighbor){
+          if(state.deck.length)
+            addDoor(doors,'open',px,py,'✧',`Push open the ${DIRNAME[d]} door`,()=>clickDoorway(d));
+          else
+            addDoor(doors,'sealed',px,py,'','The deck is empty',null);
+          continue;
+        }
+      }
+      if(t.exits[d] && !neighbor && !isHeroTile)
+        addDoor(doors,'faint',px,py,'','',null);
+    }
+  }
+  // hero token + auto-pan to keep the hero centered
+  const tok = document.getElementById('heroTok');
+  tok.hidden = false;
+  tok.style.left = (state.heroPos.x*TILE_STEP)+'px';
+  tok.style.top  = (state.heroPos.y*TILE_STEP)+'px';
+  tok.innerHTML = state.hero.glyph + (state.hero.hasCrown?'<span class="crown">👑</span>':'');
+  document.getElementById('pan').style.transform =
+    `translate(${-state.heroPos.x*TILE_STEP}px, ${-state.heroPos.y*TILE_STEP}px)`;
+  document.getElementById('deckBadge').textContent = `deck • ${state.deck.length} tiles`;
+}
+function addDoor(layer, cls, x, y, txt, label, fn){
+  const el = document.createElement(fn?'button':'div');
+  el.className='door '+cls;
+  el.style.left=x+'px'; el.style.top=y+'px';
+  el.textContent=txt;
+  if(label) el.title=label, el.setAttribute('aria-label',label);
+  if(fn) el.addEventListener('click',fn);
+  layer.appendChild(el);
+}
+
+function renderCombat(){
+  const el = document.getElementById('combat');
+  const c = state.combat;
+  if(!c || state.phase!=='combat'){ el.hidden=true; return; }
+  el.hidden=false;
+  const h = state.hero;
+  const menu = c.step==='menu' && !state.pendingRoll && !state.rolling;
+  const powerBtn = h.maxCharges
+    ? `<button id="btnPower" ${(!menu||h.charges<1)?'disabled':''}>${h.chargeName==='Spell'?'🔮 Spell':'📿 Prayer'} (${h.charges})</button>`
+    : '';
+  el.innerHTML = `<div class="card" role="dialog" aria-label="Combat">
+    <div class="mglyph">${c.m.glyph}</div>
+    <h2>${c.m.name}</h2>
+    <div class="mstats">Defense ${c.m.def} · Attack +${c.m.atk} · d${c.m.dmgDie}${c.m.dmgBonus?'+'+c.m.dmgBonus:''} damage${c.m.ignoresArmor?' · ignores armor':''}${c.m.venom?' · venomous':''}</div>
+    <div class="hpTrack"><i style="width:${Math.max(0,c.hp/c.m.hp*100)}%"></i></div>
+    <div class="mstats">${Math.max(0,c.hp)} / ${c.m.hp} HP</div>
+    <div class="vs">— VERSUS —</div>
+    <div class="hpTrack mine"><i style="width:${h.hp/h.maxHp*100}%"></i></div>
+    <div class="mstats">${h.name}: ${h.hp} / ${h.maxHp} HP · Defense ${heroDefense(false)}</div>
+    <div class="acts">
+      <button id="btnAtk" ${!menu?'disabled':''}>⚔️ Attack</button>
+      ${powerBtn}
+      <button id="btnFlee" ${!menu?'disabled':''}>🏃 Flee</button>
+    </div>
+    <div class="hint">${menu ? 'Items in your pack (right) can be used as your turn.' : 'Throw the glowing die in the tray below.'}</div>
+  </div>`;
+  el.querySelector('#btnAtk').addEventListener('click', doAttack);
+  el.querySelector('#btnFlee').addEventListener('click', doFlee);
+  const pb = el.querySelector('#btnPower');
+  if(pb) pb.addEventListener('click', h.chargeName==='Spell' ? doSpell : doPrayer);
+}
+
+function renderSheet(){
+  const h = state.hero;
+  const el = document.getElementById('sheet');
+  el.innerHTML = `
+    <div class="who"><span style="font-size:22px">${h.glyph}</span>
+      <span class="nm">${h.name}</span><span class="cl">${h.cls}</span></div>
+    <div class="hpline"><span>HP ${h.hp} / ${h.maxHp}</span><span>🪙 ${h.gold} gold</span></div>
+    <div class="hpTrack mine"><i style="width:${h.hp/h.maxHp*100}%"></i></div>
+    <div class="statrow">
+      <div class="stat"><b>${h.might}</b><span>Might</span></div>
+      <div class="stat"><b>${heroAgility()}</b><span>Agility</span></div>
+      <div class="stat"><b>${h.wits}</b><span>Wits</span></div>
+      <div class="stat"><b>${h.luck}</b><span>Luck</span></div>
+      <div class="stat"><b>${heroDefense(false)}</b><span>Defense</span></div>
+    </div>
+    <div class="statrow">
+      <div class="stat" style="flex:2"><b style="font-size:13px;padding-top:3px">${h.weapon.name} d${h.weapon.die}${h.weaponBonus?'+'+h.weaponBonus:''}</b><span>Weapon</span></div>
+      ${h.maxCharges?`<div class="stat"><b>${h.charges}</b><span>${h.chargeName}s</span></div>`:''}
+    </div>
+    ${h.venom>0?`<div class="cond">☠ Venom: −1 Agility for ${h.venom} more room${h.venom>1?'s':''}</div>`:''}
+    ${h.hasCrown?`<div class="cond" style="color:#8a6a25">👑 The Ember Crown — get back to the stair!</div>`:''}`;
+}
+
+function renderInv(){
+  const h = state.hero;
+  const el = document.getElementById('inv');
+  const canUse = (state.phase==='explore' && !state.pendingRoll && !state.rolling) ||
+                 (state.phase==='combat' && state.combat && !combatBusy());
+  let html = '<h3>Pack</h3>';
+  if(!h.items.length) html += `<div style="font-size:12px;color:var(--ink-soft);font-style:italic">Empty. Travel light, die young.</div>`;
+  h.items.forEach((it,i)=>{
+    html += `<button class="item" data-i="${i}" ${canUse?'':'disabled'}>
+      <span>${it.glyph}</span> ${it.name} <small>${it.desc}</small></button>`;
+  });
+  const gear = [...h.gear];
+  if(h.rope>0) gear.push(`Rope ×${h.rope} (auto-pass next trap)`);
+  if(gear.length){
+    html += `<div class="gearHead">Gear — always working</div>`;
+    gear.forEach(g=>{ html += `<div class="item"><span>·</span> ${g}</div>`; });
+  }
+  el.innerHTML = html;
+  el.querySelectorAll('button.item').forEach(b=>{
+    b.addEventListener('click', ()=>useConsumable(+b.dataset.i));
+  });
+}
+
+function renderLog(){
+  const el = document.getElementById('log');
+  el.innerHTML = state.log.map(l=>`<p class="${l.cls}">${l.text}</p>`).join('');
+}
+
+function renderBottom(){
+  // dice states
+  DICE_SIDES.forEach(s=>{
+    const d = diceEls[s];
+    d.classList.toggle('needed', !!state.pendingRoll && state.pendingRoll.sides===s && !state.rolling);
+    d.classList.toggle('inert', !!state.pendingRoll && state.pendingRoll.sides!==s);
+  });
+  // the prompt — the player always knows what the game is waiting for
+  const pt = document.getElementById('promptTxt');
+  const px = document.getElementById('promptExtra');
+  px.innerHTML='';
+  let txt='', wait=false;
+  if(state.rolling){ txt='The die tumbles…'; }
+  else if(state.pendingRoll){ txt=`Roll the d${state.pendingRoll.sides} — ${state.pendingRoll.label}`; wait=true; }
+  else switch(state.phase){
+    case 'explore': {
+      const t = heroTile();
+      if(t.entrance && state.hero.hasCrown){
+        txt='The stair is beneath your feet. The Crown is yours.';
+        const b=document.createElement('button');
+        b.className='bigBtn'; b.id='escapeBtn'; b.textContent='⬆ Escape the dungeon';
+        b.addEventListener('click', escapeDungeon);
+        px.appendChild(b);
+      } else if(!state.deck.length){
+        txt='The deck is spent — walk the white arrows back to the entrance stair.';
+      } else {
+        txt='Choose a glowing doorway to explore — or a white arrow to walk back.';
+      }
+      break; }
+    case 'placing': txt='Rotate the drawn tile until a doorway lines up, then place it.'; wait=true; break;
+    case 'combat': txt = state.combat && state.combat.step==='menu' ? 'Your move.' : '…'; break;
+    default: txt='';
+  }
+  pt.textContent = txt;
+  pt.classList.toggle('waiting', wait);
+  // tile preview
+  const pv = document.getElementById('previewBox');
+  if(state.phase==='placing' && state.pendingTile){
+    const p = state.pendingTile;
+    const ok = canConnect(p.def.exits, p.rot, p.fromDir);
+    const needDir = DIRNAME[opposite(p.fromDir)];
+    if(!pv.dataset.live){
+      pv.dataset.live='1';
+      pv.innerHTML = `<div id="pvTile"></div>
+        <div id="pvSide">
+          <div id="pvName"></div>
+          <button id="pvRot">⟳ Rotate (R)</button>
+          <button id="pvPlace">▼ Place tile</button>
+          <div id="pvWhy"></div>
+        </div>`;
+      pv.querySelector('#pvRot').addEventListener('click', rotatePending);
+      pv.querySelector('#pvPlace').addEventListener('click', placePending);
+      const ex = p.def.exits;
+      pv.querySelector('#pvTile').innerHTML = `<div class="tile"><div class="art">
+        ${ex[N]?'<div class="arm n"></div>':''}${ex[E]?'<div class="arm e"></div>':''}
+        ${ex[S]?'<div class="arm s"></div>':''}${ex[W]?'<div class="arm w"></div>':''}
+        <div class="floor"></div></div></div>`;
+    }
+    pv.querySelector('#pvName').textContent = p.def.name;
+    pv.querySelector('#pvTile').style.transform = `rotate(${p.visRot}deg)`;
+    const place = pv.querySelector('#pvPlace');
+    place.disabled = !ok;
+    pv.querySelector('#pvWhy').textContent = ok
+      ? `A doorway faces ${needDir}, back the way you came. It fits.`
+      : `No doorway faces ${needDir} — it must connect back to where you stand. Keep rotating.`;
+  } else {
+    delete pv.dataset.live;
+    pv.innerHTML = `<div id="deckOnly">🂠 tile deck<br>${state.deck.length} of 16 remain</div>`;
+  }
+}
+
+/* ---------------- OVERLAY SCREENS ---------------- */
+let chosenClass = null;
+function renderScreens(){
+  const sc = document.getElementById('screen');
+  if(state.phase==='create'){
+    sc.hidden=false;
+    sc.innerHTML = `<div class="box">
+      <h1>TILE CRAWL <em>CC</em></h1>
+      <div class="sub">a solo dungeon crawl in cardboard &amp; bone</div>
+      <div id="nameRow"><input id="heroName" maxlength="18" placeholder="Name your hero…" aria-label="Hero name"></div>
+      <div id="classes">${CLASSES.map((c,i)=>`
+        <button class="ccard" data-i="${i}" aria-pressed="false">
+          <div class="cg">${c.glyph}</div><h2>${c.name}</h2>
+          <div class="cstats">HP ${c.hp} · Might ${c.might} · Agility ${c.agility}<br>Wits ${c.wits} · Luck ${c.luck} · Def ${CONFIG.baseDefense+c.agility+c.armor}</div>
+          <div class="ckit">${c.kit}</div>
+        </button>`).join('')}</div>
+      <div class="mission">${MISSION}<br><span style="font-size:12px;font-style:normal">Everyone carries 2 Rations (heal d4) and 10 gold.</span></div>
+      <button class="bigBtn" id="startBtn" disabled>Descend the Stair</button>
+    </div>`;
+    sc.querySelectorAll('.ccard').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        chosenClass = CLASSES[+b.dataset.i];
+        sc.querySelectorAll('.ccard').forEach(x=>{ x.classList.remove('sel'); x.setAttribute('aria-pressed','false'); });
+        b.classList.add('sel'); b.setAttribute('aria-pressed','true');
+        sc.querySelector('#startBtn').disabled=false;
+      });
+    });
+    sc.querySelector('#startBtn').addEventListener('click', ()=>{
+      const nm = sc.querySelector('#heroName').value.trim();
+      newGame(chosenClass, nm || 'Adventurer');
+    });
+    return;
+  }
+  if(state.phase==='dead' || state.phase==='won'){
+    const won = state.phase==='won';
+    sc.hidden=false;
+    const h=state.hero, st=state.stats;
+    sc.innerHTML = `<div class="box">
+      <h1>${won?'OUT OF THE DARK':'<em>THE DUNGEON KEEPS YOU</em>'}</h1>
+      <div class="sub">${won?'victory — the ember crown is recovered':'a run remembered in chalk on the tavern wall'}</div>
+      <div class="deathTale">${won
+        ? `${h.name} the ${h.cls} climbs the entrance stair into daylight, the Ember Crown warm as a coal in their pack.`
+        : `${h.name} the ${h.cls} went down into the lower halls and did not come back.`}</div>
+      <div class="summary">
+        <div><b>${st.rooms}</b><span>rooms explored</span></div>
+        <div><b>${st.kills}</b><span>monsters slain</span></div>
+        <div><b>${h.gold}</b><span>gold ${won?'carried out':'lost below'}</span></div>
+        <div><b>${h.hasCrown?'👑':'—'}</b><span>the crown</span></div>
+      </div>
+      <button class="bigBtn" id="againBtn">⚔ New Run</button>
+    </div>`;
+    sc.querySelector('#againBtn').addEventListener('click', ()=>{
+      state = freshState();
+      chosenClass = null;
+      clearMapDOM();
+      document.getElementById('rollout').innerHTML='<div class="dim">The dice are quiet.</div>';
+      render();
+    });
+    return;
+  }
+  sc.hidden=true;
+}
+
+/* ---------------- INIT ---------------- */
+buildDice();
+document.addEventListener('keydown', ev=>{
+  if(ev.key==='r' || ev.key==='R'){
+    if(state && state.phase==='placing' && document.activeElement.tagName!=='INPUT') rotatePending();
+  }
+});
+state = freshState();
+render();
+
+/* EXTENSION POINT: add floors here — on escape, instead of winning, deal a new
+   deck, keep the hero, and raise CONFIG.deepShiftAt / monster stats per floor. */
+/* EXTENSION POINT: leveling — award XP in victory(), spend it on stats between
+   floors; Luck is currently flavor and is the natural hook for rerolls. */
+/* EXTENSION POINT: shops — the merchant EVENTS entry and hero.gold are wired;
+   a 'shop' room type in ROOM_TABLE is a one-object append. */
+</script>
+</body>
+</html>
